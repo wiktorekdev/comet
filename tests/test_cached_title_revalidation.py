@@ -111,6 +111,30 @@ class CachedTitleRevalidationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(right_hash, manager.torrents)
         self.assertTrue(manager.primary_cached)
 
+    async def test_secondary_duplicate_does_not_count_as_primary_cache(self):
+        manager = self._manager()
+        manager.cache_media_ids = [manager.media_only_id, "kitsu:456"]
+        duplicate_hash = "f" * 40
+        primary = self._row(
+            "Spider-Man.Into.the.Spider-Verse.2018.2160p.REMUX.HEVC.DV.mkv",
+            duplicate_hash,
+        )
+        primary["updated_at"] = 1
+        secondary = self._row(
+            "Spider-Man.Homecoming.2017.2160p.BluRay.REMUX.HEVC.mkv",
+            duplicate_hash,
+        )
+        secondary["updated_at"] = 2
+
+        async def fetch_rows(media_id):
+            return [primary] if media_id == manager.media_only_id else [secondary]
+
+        with patch.object(manager, "_fetch_cached_rows", side_effect=fetch_rows):
+            await manager.get_cached_torrents()
+
+        self.assertIn(duplicate_hash, manager.torrents)
+        self.assertFalse(manager.primary_cached)
+
 
 if __name__ == "__main__":
     unittest.main()

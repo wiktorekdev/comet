@@ -197,17 +197,16 @@ class TorrentManager:
 
     async def get_cached_torrents(self):
         rows = []
-        primary_info_hashes = set()
         cache_row_groups = await asyncio.gather(
             *(
                 self._fetch_cached_rows(cache_media_id)
                 for cache_media_id in self.cache_media_ids
             )
         )
-        for cache_media_id, cache_rows in zip(self.cache_media_ids, cache_row_groups):
-            if cache_media_id == self.media_only_id:
-                primary_info_hashes.update(row["info_hash"] for row in cache_rows)
-            rows.extend(cache_rows)
+        for cache_media_id, cache_rows in zip(
+            self.cache_media_ids, cache_row_groups, strict=True
+        ):
+            rows.extend((cache_media_id, row) for row in cache_rows)
 
         if rows:
             best_rows = {}
@@ -231,11 +230,11 @@ class TorrentManager:
                     updated_at,
                 )
 
-            for row in rows:
+            for cache_media_id, row in rows:
                 info_hash = row["info_hash"]
                 current = best_rows.get(info_hash)
-                if current is None or row_priority(row) > row_priority(current):
-                    best_rows[info_hash] = row
+                if current is None or row_priority(row) > row_priority(current[1]):
+                    best_rows[info_hash] = (cache_media_id, row)
 
             rows = list(best_rows.values())
 
@@ -247,7 +246,7 @@ class TorrentManager:
             self.aliases,
         )
 
-        for row in rows:
+        for cache_media_id, row in rows:
             parsed_data = load_cached_parsed(row["parsed_json"])
             if parsed_data is None:
                 logger.warning(
@@ -303,7 +302,7 @@ class TorrentManager:
                 "parsed": parsed_data,
                 "updatedAt": row["updated_at"],
             }
-            if info_hash in primary_info_hashes:
+            if cache_media_id == self.media_only_id:
                 self.primary_cached = True
 
     def _append_cache_file_infos(self, file_infos: list[dict], torrent: dict):
