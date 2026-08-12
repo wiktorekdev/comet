@@ -1,6 +1,7 @@
 import asyncio
 import time
 
+from pydantic import ValidationError
 from RTN import DefaultRanking, ParsedData
 
 from comet.core.execution import get_executor
@@ -9,7 +10,7 @@ from comet.core.models import CometSettingsModel, database, settings
 from comet.core.scrape import ScrapeContext
 from comet.scrapers.manager import scraper_manager
 from comet.scrapers.models import ScrapeRequest
-from comet.services.filtering import TitleMatcher, filter_worker
+from comet.services.filtering import TitleMatcher, filter_worker, parse_with_cache
 from comet.services.ranking import rank_worker
 from comet.services.torrent_manager import torrent_update_queue
 from comet.utils.languages import select_indexer_titles
@@ -255,8 +256,19 @@ class TorrentManager:
                 continue
             ensure_multi_language(parsed_data)
 
-            if parsed_data.parsed_title and not title_matcher.matches(
-                row["title"], parsed_data.parsed_title, parsed_data.year
+            torrent_title = row["title"]
+            if not isinstance(torrent_title, str) or not torrent_title:
+                continue
+            try:
+                parsed_title = parse_with_cache(torrent_title)
+            except ValidationError:
+                logger.warning(
+                    f"Skipping torrent cache row with invalid title: {row['info_hash']}"
+                )
+                continue
+
+            if not parsed_title.parsed_title or not title_matcher.matches(
+                torrent_title, parsed_title.parsed_title, parsed_title.year
             ):
                 continue
 

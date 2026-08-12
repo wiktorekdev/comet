@@ -51,6 +51,52 @@ class CachedTitleRevalidationTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(wrong_hash, manager.torrents)
         self.assertFalse(manager.primary_cached)
 
+    async def test_cached_row_with_wrong_year_is_rejected(self):
+        manager = self._manager()
+        wrong_year_hash = "e" * 40
+        wrong_year = self._row(
+            "Spider-Man.Homecoming.2019.2160p.BluRay.REMUX.HEVC.mkv",
+            wrong_year_hash,
+        )
+
+        with patch.object(manager, "_fetch_cached_rows", return_value=[wrong_year]):
+            await manager.get_cached_torrents()
+
+        self.assertNotIn(wrong_year_hash, manager.torrents)
+        self.assertFalse(manager.primary_cached)
+
+    async def test_cached_row_revalidates_legacy_parsed_data_from_raw_title(self):
+        manager = self._manager()
+        missing_title_hash = "c" * 40
+        row = self._row(
+            "Spider-Man.Homecoming.2017.2160p.BluRay.REMUX.HEVC.mkv",
+            missing_title_hash,
+        )
+        row["parsed_json"] = '{"raw_title":"Spider-Man.Homecoming.2017.mkv"}'
+
+        with patch.object(manager, "_fetch_cached_rows", return_value=[row]):
+            await manager.get_cached_torrents()
+
+        self.assertIn(missing_title_hash, manager.torrents)
+        self.assertTrue(manager.primary_cached)
+
+    async def test_cached_row_does_not_trust_persisted_parsed_title(self):
+        manager = self._manager()
+        inconsistent_hash = "d" * 40
+        row = self._row(
+            "Spider-Man.Into.the.Spider-Verse.2018.2160p.REMUX.HEVC.DV.mkv",
+            inconsistent_hash,
+        )
+        row["parsed_json"] = parse(
+            "Spider-Man.Homecoming.2017.2160p.BluRay.REMUX.HEVC.mkv"
+        ).model_dump_json()
+
+        with patch.object(manager, "_fetch_cached_rows", return_value=[row]):
+            await manager.get_cached_torrents()
+
+        self.assertNotIn(inconsistent_hash, manager.torrents)
+        self.assertFalse(manager.primary_cached)
+
     async def test_matching_cached_title_still_counts_as_primary_cache(self):
         manager = self._manager()
         right_hash = "b" * 40
