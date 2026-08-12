@@ -133,6 +133,10 @@ class CachedTitleRevalidationTests(unittest.IsolatedAsyncioTestCase):
             await manager.get_cached_torrents()
 
         self.assertIn(duplicate_hash, manager.torrents)
+        self.assertEqual(
+            manager.torrents[duplicate_hash]["updatedAt"],
+            secondary["updated_at"],
+        )
         self.assertFalse(manager.primary_cached)
 
 
