@@ -9,7 +9,7 @@ from comet.core.models import CometSettingsModel, database, settings
 from comet.core.scrape import ScrapeContext
 from comet.scrapers.manager import scraper_manager
 from comet.scrapers.models import ScrapeRequest
-from comet.services.filtering import filter_worker
+from comet.services.filtering import TitleMatcher, filter_worker
 from comet.services.ranking import rank_worker
 from comet.services.torrent_manager import torrent_update_queue
 from comet.utils.languages import select_indexer_titles
@@ -196,6 +196,7 @@ class TorrentManager:
 
     async def get_cached_torrents(self):
         rows = []
+        primary_info_hashes = set()
         cache_row_groups = await asyncio.gather(
             *(
                 self._fetch_cached_rows(cache_media_id)
@@ -203,8 +204,8 @@ class TorrentManager:
             )
         )
         for cache_media_id, cache_rows in zip(self.cache_media_ids, cache_row_groups):
-            if cache_rows and cache_media_id == self.media_only_id:
-                self.primary_cached = True
+            if cache_media_id == self.media_only_id:
+                primary_info_hashes.update(row["info_hash"] for row in cache_rows)
             rows.extend(cache_rows)
 
         if rows:
@@ -237,6 +238,14 @@ class TorrentManager:
 
             rows = list(best_rows.values())
 
+        title_matcher = TitleMatcher(
+            self.title,
+            self.year,
+            self.year_end,
+            self.media_type,
+            self.aliases,
+        )
+
         for row in rows:
             parsed_data = load_cached_parsed(row["parsed_json"])
             if parsed_data is None:
@@ -245,6 +254,11 @@ class TorrentManager:
                 )
                 continue
             ensure_multi_language(parsed_data)
+
+            if parsed_data.parsed_title and not title_matcher.matches(
+                row["title"], parsed_data.parsed_title, parsed_data.year
+            ):
+                continue
 
             target_season = self.search_season
             if (
@@ -277,6 +291,8 @@ class TorrentManager:
                 "parsed": parsed_data,
                 "updatedAt": row["updated_at"],
             }
+            if info_hash in primary_info_hashes:
+                self.primary_cached = True
 
     def _append_cache_file_infos(self, file_infos: list[dict], torrent: dict):
         parsed = torrent["parsed"]
